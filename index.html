@@ -220,6 +220,28 @@
             width: 100%;
         }
 
+        .chart-container::after,
+        .chart-sm::after {
+            content: 'herdvibe.com';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 2.2rem;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.06);
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .chart-sm::after {
+            font-size: 1.4rem;
+            letter-spacing: 3px;
+        }
+
         /* Period Buttons */
         .period-btns {
             display: flex;
