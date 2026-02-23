@@ -1,0 +1,33 @@
+name: Update Stablecoin BTC Dashboard
+
+on:
+  schedule:
+    - cron: '0 21 * * *'  # UTC 21:00 = KST 06:00
+  workflow_dispatch:  # 수동 실행 가능
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Fetch data and compute indicators
+        run: python fetch_data.py
+
+      - name: Commit and push
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add stablecoin_btc_data.json
+          git diff --staged --quiet || git commit -m "📊 Update stablecoin-btc data $(date +'%Y-%m-%d %H:%M')"
+          git push
