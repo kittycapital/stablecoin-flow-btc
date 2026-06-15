@@ -26,8 +26,8 @@ def fetch_btc_price():
     url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
     params = {
         "vs_currency": "usd",
-        "days": "max",
-        "interval": "daily"
+        "days": "max"
+        # interval 파라미터 제거: days=max 시 자동으로 daily 반환 (무료 플랜 호환)
     }
     resp = requests.get(url, params=params, timeout=30)
     resp.raise_for_status()
