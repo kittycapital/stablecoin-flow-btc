@@ -22,24 +22,23 @@ def fetch_stablecoin_data(coin_id):
     return result
 
 def fetch_btc_price():
-    """CryptoCompare daily BTC price - allData=true for full history"""
-    url = "https://min-api.cryptocompare.com/data/v2/histoday"
+    """CoinGecko daily BTC price - 무료 API, 키 불필요, 전체 히스토리"""
+    url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
     params = {
-        "fsym": "BTC",
-        "tsym": "USD",
-        "allData": "true"
+        "vs_currency": "usd",
+        "days": "max",
+        "interval": "daily"
     }
     resp = requests.get(url, params=params, timeout=30)
     resp.raise_for_status()
     data = resp.json()
     
     result = {}
-    for entry in data.get("Data", {}).get("Data", []):
-        ts = entry["time"]
-        date_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
-        close = entry.get("close", 0)
-        if close and close > 0:
-            result[date_str] = close
+    for entry in data.get("prices", []):
+        ts_ms, price = entry[0], entry[1]
+        date_str = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+        if price and price > 0:
+            result[date_str] = price
     
     return result
 
@@ -194,7 +193,7 @@ def main():
     
     time.sleep(1)
     
-    print("📡 Fetching BTC price from CryptoCompare...")
+    print("📡 Fetching BTC price from CoinGecko...")
     btc = fetch_btc_price()
     print(f"   → {len(btc)} days of BTC data")
     
