@@ -22,24 +22,42 @@ def fetch_stablecoin_data(coin_id):
     return result
 
 def fetch_btc_price():
-    """CoinGecko daily BTC price - 무료 API, 키 불필요, 전체 히스토리"""
-    url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
-    params = {
-        "vs_currency": "usd",
-        "days": "max"
-        # interval 파라미터 제거: days=max 시 자동으로 daily 반환 (무료 플랜 호환)
-    }
-    resp = requests.get(url, params=params, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
-    
+    """Binance daily BTC/USDT klines - 무료 API, 키 불필요, 최대 1000일"""
+    url = "https://api.binance.com/api/v3/klines"
     result = {}
-    for entry in data.get("prices", []):
-        ts_ms, price = entry[0], entry[1]
-        date_str = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
-        if price and price > 0:
-            result[date_str] = price
-    
+    end_time = None
+
+    while True:
+        params = {
+            "symbol": "BTCUSDT",
+            "interval": "1d",
+            "limit": 1000,
+        }
+        if end_time:
+            params["endTime"] = end_time
+
+        resp = requests.get(url, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+
+        if not data:
+            break
+
+        for entry in data:
+            ts_ms = entry[0]          # open time
+            close_price = float(entry[4])  # close price
+            date_str = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+            if close_price > 0:
+                result[date_str] = close_price
+
+        # 1000개 미만이면 더 이상 과거 데이터 없음
+        if len(data) < 1000:
+            break
+
+        # 다음 배치: 현재 배치 첫 캔들 open time - 1ms
+        end_time = data[0][0] - 1
+        time.sleep(0.3)
+
     return result
 
 def compute_indicators(combined_mcap, btc_prices):
@@ -193,7 +211,7 @@ def main():
     
     time.sleep(1)
     
-    print("📡 Fetching BTC price from CoinGecko...")
+    print("📡 Fetching BTC price from Binance...")
     btc = fetch_btc_price()
     print(f"   → {len(btc)} days of BTC data")
     
