@@ -22,32 +22,84 @@ def fetch_stablecoin_data(coin_id):
     return result
 
 def fetch_btc_price():
-    """CoinGecko daily BTC/USD price - 무료 API, 키 불필요, 지역제한 없음"""
-    url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
-    result = {}
-
-    params = {
-        "vs_currency": "usd",
-        "days": "max",
-        # interval 파라미터 제거: free tier는 days>90 이면 자동으로 daily 반환
-    }
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; HerdVibe/1.0)",
-        "Accept": "application/json",
-    }
-
-    resp = requests.get(url, params=params, headers=headers, timeout=60)
-    resp.raise_for_status()
-    data = resp.json()
-
-    for entry in data.get("prices", []):
-        ts_ms, price = entry[0], entry[1]
-        date_str = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
-        if price and price > 0:
-            result[date_str] = price
-
-    return result
+    """BTC 가격 - 3단계 fallback: DefiLlama → CoinGecko → Binance"""
+    
+    # 1차: DefiLlama (stablecoin과 같은 제공자 → GitHub Actions에서 확실)
+    try:
+        print("   [1/3] Trying DefiLlama coins API...")
+        url = "https://coins.llama.fi/chart/coingecko:bitcoin"
+        params = {"period": "1d", "span": 3000}
+        resp = requests.get(url, params=params, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        result = {}
+        for entry in data.get("coins", {}).get("coingecko:bitcoin", {}).get("prices", []):
+            ts = entry.get("timestamp", 0)
+            price = entry.get("price", 0)
+            if ts and price > 0:
+                date_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+                result[date_str] = price
+        if len(result) > 100:
+            print(f"   ✅ DefiLlama: {len(result)} days")
+            return result
+        print(f"   ⚠️ DefiLlama returned only {len(result)} days, trying next...")
+    except Exception as e:
+        print(f"   ❌ DefiLlama failed: {e}")
+    
+    # 2차: CoinGecko
+    try:
+        print("   [2/3] Trying CoinGecko API...")
+        url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
+        params = {"vs_currency": "usd", "days": "max"}
+        headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+        resp = requests.get(url, params=params, headers=headers, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        result = {}
+        for entry in data.get("prices", []):
+            ts_ms, price = entry[0], entry[1]
+            if price and price > 0:
+                date_str = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+                result[date_str] = price
+        if len(result) > 100:
+            print(f"   ✅ CoinGecko: {len(result)} days")
+            return result
+        print(f"   ⚠️ CoinGecko returned only {len(result)} days, trying next...")
+    except Exception as e:
+        print(f"   ❌ CoinGecko failed: {e}")
+    
+    # 3차: Binance (미국 IP에서 451 가능하지만 마지막 시도)
+    try:
+        print("   [3/3] Trying Binance API...")
+        url = "https://api.binance.com/api/v3/klines"
+        result = {}
+        end_time = None
+        while True:
+            params = {"symbol": "BTCUSDT", "interval": "1d", "limit": 1000}
+            if end_time:
+                params["endTime"] = end_time
+            resp = requests.get(url, params=params, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            if not data:
+                break
+            for entry in data:
+                ts_ms = entry[0]
+                close_price = float(entry[4])
+                if close_price > 0:
+                    date_str = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+                    result[date_str] = close_price
+            if len(data) < 1000:
+                break
+            end_time = data[0][0] - 1
+            time.sleep(0.3)
+        if result:
+            print(f"   ✅ Binance: {len(result)} days")
+            return result
+    except Exception as e:
+        print(f"   ❌ Binance failed: {e}")
+    
+    raise RuntimeError("❌ 모든 BTC 가격 API 실패. 네트워크 확인 필요.")
 
 def compute_indicators(combined_mcap, btc_prices):
     """
@@ -200,7 +252,7 @@ def main():
     
     time.sleep(1)
     
-    print("📡 Fetching BTC price from Binance...")
+    print("📡 Fetching BTC price from DefiLlama...")
     btc = fetch_btc_price()
     print(f"   → {len(btc)} days of BTC data")
     
