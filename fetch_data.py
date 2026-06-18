@@ -22,13 +22,14 @@ def fetch_stablecoin_data(coin_id):
     return result
 
 def fetch_btc_price():
-    """BTC 가격 - 3단계 fallback: DefiLlama → CoinGecko → Binance"""
+    """BTC 가격 - 3단계 fallback: DefiLlama → Kraken → Binance"""
     
     # 1차: DefiLlama (stablecoin과 같은 제공자 → GitHub Actions에서 확실)
     try:
         print("   [1/3] Trying DefiLlama coins API...")
         url = "https://coins.llama.fi/chart/coingecko:bitcoin"
-        params = {"period": "1d", "span": 3000}
+        # start = 2017-01-01 UTC, period = 1d
+        params = {"start": 1483228800, "period": "1d"}
         resp = requests.get(url, params=params, timeout=60)
         resp.raise_for_status()
         data = resp.json()
@@ -46,27 +47,41 @@ def fetch_btc_price():
     except Exception as e:
         print(f"   ❌ DefiLlama failed: {e}")
     
-    # 2차: CoinGecko
+    # 2차: Kraken (EU 기반, 미국 IP 차단 없음)
     try:
-        print("   [2/3] Trying CoinGecko API...")
-        url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
-        params = {"vs_currency": "usd", "days": "max"}
-        headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
-        resp = requests.get(url, params=params, headers=headers, timeout=60)
-        resp.raise_for_status()
-        data = resp.json()
+        print("   [2/3] Trying Kraken API...")
+        url = "https://api.kraken.com/0/public/OHLC"
         result = {}
-        for entry in data.get("prices", []):
-            ts_ms, price = entry[0], entry[1]
-            if price and price > 0:
-                date_str = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
-                result[date_str] = price
+        # Kraken은 최대 720개 반환, since로 pagination
+        since = 1483228800  # 2017-01-01
+        while True:
+            params = {"pair": "XBTUSD", "interval": 1440, "since": since}
+            resp = requests.get(url, params=params, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("error") and len(data["error"]) > 0:
+                raise Exception(f"Kraken error: {data['error']}")
+            ohlc = data.get("result", {}).get("XXBTZUSD", [])
+            if not ohlc:
+                break
+            for candle in ohlc:
+                ts = candle[0]
+                close_price = float(candle[4])
+                if close_price > 0:
+                    date_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+                    result[date_str] = close_price
+            # last timestamp for next batch
+            new_since = data.get("result", {}).get("last", 0)
+            if new_since <= since:
+                break
+            since = new_since
+            time.sleep(0.5)
         if len(result) > 100:
-            print(f"   ✅ CoinGecko: {len(result)} days")
+            print(f"   ✅ Kraken: {len(result)} days")
             return result
-        print(f"   ⚠️ CoinGecko returned only {len(result)} days, trying next...")
+        print(f"   ⚠️ Kraken returned only {len(result)} days, trying next...")
     except Exception as e:
-        print(f"   ❌ CoinGecko failed: {e}")
+        print(f"   ❌ Kraken failed: {e}")
     
     # 3차: Binance (미국 IP에서 451 가능하지만 마지막 시도)
     try:
